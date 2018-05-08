@@ -1,4 +1,3 @@
-
 /* interface.cc */
 #include <cstdarg>
 #include <cstdio>
@@ -11,9 +10,6 @@
 #include <SDL2/SDL_ttf.h>
 #include "interface.hh"
 #include "state.hh"
-#include "process.hh"
-#include "fractal.hh"
-#include "graphics.hh"
 
 #define FONT_PATH        "fonts/cour.ttf"
 #define FONT_SIZE         14
@@ -25,7 +21,7 @@
 
 namespace interface 
 {
-	enum DISPLAYSTATE : int
+	enum DisplayState : int
 	{
 		NONE  = 0x00,
 		SHOW  = 0x01,
@@ -46,13 +42,15 @@ namespace interface
 
 	static std::vector<Format> stack(FORMAT_STACK_SIZE);
 	static TTF_Font           *font;
-	static int                 state;
+	static int                 intstate;
 
 	void initialize(void)
 	{
 		assert(TTF_Init() != -1);
+
 		font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
 		assert(font != NULL);
+
 		toggle_interface();
 	}
 
@@ -64,8 +62,9 @@ namespace interface
 	
 	void render(SDL_Renderer *renderer)
 	{
-		if(! (state & DISPLAYSTATE::SHOW))
+		if(!(intstate & DisplayState::SHOW))
 			return;
+
 		load_interface();
 		render_interface(renderer);
 		render_crosshair(renderer);
@@ -86,11 +85,11 @@ namespace interface
 		TTF_SizeText(font, format.data, &format.prop.w, &format.prop.h);
 
 		if(x == -1) /* Center */
-			format.prop.x = (graphics::width- format.prop.w) / 2;
+			format.prop.x = (state.width- format.prop.w) / 2;
 		else
 			format.prop.x = x;
 		if(y == -1) /* Center */
-			format.prop.y = (graphics::height - format.prop.h) / 2;
+			format.prop.y = (state.height - format.prop.h) / 2;
 		else
 			format.prop.y = y;
 		
@@ -99,26 +98,26 @@ namespace interface
 
 	void toggle_interface(void)
 	{
-		state ^= DISPLAYSTATE::SHOW; 
+		intstate ^= DisplayState::SHOW; 
 	}
 
 	void toggle_debug(void)
 	{
-		state ^= DISPLAYSTATE::DEBUG;
+		intstate ^= DisplayState::DEBUG;
 	}
 
 	void toggle_help(void)
 	{
-		state ^= DISPLAYSTATE::HELP;
+		intstate ^= DisplayState::HELP;
 	}
 
 	static void load_interface(void)
 	{
 		int const x = FONT_SIZE;
-		int const y = graphics::height - 10 * FONT_SIZE;
+		int const y = state.height - 10 * FONT_SIZE;
 		int offset;
 
-		if(state & DISPLAYSTATE::HELP)
+		if(intstate & DisplayState::HELP)
 		{
 			push_format(x, FONT_SIZE*1 , 46, "<H>          : Toggle this message            "); 
 			push_format(x, FONT_SIZE*2 , 46, "<G>          : Toggle debug information       ");
@@ -128,8 +127,9 @@ namespace interface
 			push_format(x, FONT_SIZE*6 , 46, "<Z/X>        : Toggle fractal type            ");
 			push_format(x, FONT_SIZE*7 , 46, "<I/O>        : Inc-/decrement max iterations  ");
 			push_format(x, FONT_SIZE*8 , 46, "<Q/E>        : Inc-/decrement thread amount   ");
-			push_format(x, FONT_SIZE*9 , 46, "<SPACE>      : Take a screenshot              ");
-			push_format(x, FONT_SIZE*10, 46, "<F11>        : Toggle fullscreen              ");
+			push_format(x, FONT_SIZE*9 , 46, "<R>          : Render again                   ");
+			push_format(x, FONT_SIZE*10, 46, "<SPACE>      : Take a screenshot              ");
+			push_format(x, FONT_SIZE*11, 46, "<F11>        : Toggle fullscreen              ");
 			offset = 0;
 		}
 		else
@@ -138,15 +138,14 @@ namespace interface
 			offset = -FONT_SIZE*2;
 		}
 
-		if(state & DISPLAYSTATE::DEBUG)
+		if(intstate & DisplayState::DEBUG)
 		{
-			push_format(x, y + FONT_SIZE*2 + offset, 44, "Render size:  %dx%d pixels                     ", graphics::width, graphics::height);
-			push_format(x, y + FONT_SIZE*3 + offset, 44, "Iterations :  %d                               ", fractal::iterations);
-			push_format(x, y + FONT_SIZE*4 + offset, 44, "Threads    :  %d                               ", process::threads);
-			push_format(x, y + FONT_SIZE*5 + offset, 44, "Rendered in:  %.3f seconds                     ", process::framerate());
-			push_format(x, y + FONT_SIZE*6 + offset, 44, "Scale      :  %llu:1                           ", state::scale);
-			push_format(x, y + FONT_SIZE*7 + offset, 44, "X          : %s%.18Lf                          ", state::x < 0.0L ? "" : " ", state::x);
-			push_format(x, y + FONT_SIZE*8 + offset, 44, "Y          : %s%.18Lf                          ", state::y < 0.0L ? "" : " ", state::y);
+			push_format(x, y + FONT_SIZE*2 + offset, 44, "Render size:  %dx%d pixels                     ", state.width, state.height);
+			push_format(x, y + FONT_SIZE*3 + offset, 44, "Iterations :  %d                               ", state.iterations);
+			push_format(x, y + FONT_SIZE*4 + offset, 44, "Threads    :  %d                               ", state.threads);
+			push_format(x, y + FONT_SIZE*5 + offset, 44, "Scale      :  %llu:1                           ", state.scale);
+			push_format(x, y + FONT_SIZE*6 + offset, 44, "X          : %s%.18Lf                          ", state.x < 0.0L ? "" : " ", state.x);
+			push_format(x, y + FONT_SIZE*7 + offset, 44, "Y          : %s%.18Lf                          ", state.y < 0.0L ? "" : " ", state.y);
 		}
 		else
 		{
@@ -156,7 +155,7 @@ namespace interface
 
 	static void render_interface(SDL_Renderer *renderer)
 	{
-		while(! stack.empty())
+		while(!stack.empty())
 		{
 			render_format(renderer, &stack.back());
 			stack.pop_back();
@@ -184,14 +183,14 @@ namespace interface
 	{	
 		bool (*function)(int, int);
 
-		auto loop = [&](void) -> void
+		auto loop = [&](bool (*function)(int, int)) -> void
 		{
 			for(int x = -CROSSHAIR_RADIUS; x <= CROSSHAIR_RADIUS; ++x)
 			{	
 				for(int y = -CROSSHAIR_RADIUS; y <= CROSSHAIR_RADIUS; ++y)
 				{
 					if(function(x, y)) 
-						SDL_RenderDrawPoint(renderer, (graphics::width / 2) + x, (graphics::height / 2) + y);
+						SDL_RenderDrawPoint(renderer, (state.width / 2) + x, (state.height / 2) + y);
 				}
 			}
 		};
@@ -214,7 +213,7 @@ namespace interface
 				|| std::abs(x+y) <= 1
 			;
 		};
-		loop();
+		loop(function);
 		
 		/* Draw inline */
 		SDL_SetRenderDrawColor
@@ -234,7 +233,7 @@ namespace interface
 				&& std::abs(y) < CROSSHAIR_RADIUS
 			; 
 		};
-		loop();
+		loop(function);
 	}
 }
 

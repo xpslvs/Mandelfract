@@ -1,6 +1,6 @@
-
 /* interface.hh */
-#pragma once
+#ifndef INTERFACE_HH
+#define INTERFACE_HH
 
 #include <SDL2/SDL.h>
 
@@ -15,3 +15,4 @@ namespace interface
 	void toggle_help(void);
 }
 
+#endif /* INTERFACE_HH */

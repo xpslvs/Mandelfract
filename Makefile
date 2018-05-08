@@ -2,7 +2,7 @@
 # Makefile Mandelfract
 
 CXX      := g++
-CXXFLAGS := -std=c++17 -Ofast -fno-math-errno -fassociative-math -freciprocal-math -fno-signed-zeros -fno-trapping-math -fcx-fortran-rules -flto -march=native -frename-registers -funroll-loops -ftracer
+CXXFLAGS := -std=c++17 -Ofast -Wall -pedantic -march=native -flto -fno-math-errno -fassociative-math -freciprocal-math -fno-signed-zeros -fno-trapping-math -fcx-fortran-rules -frename-registers -funroll-loops -ftracer
 LDFLAGS  := -lpthread -lSDL2 -lSDL2_ttf $(CXXFLAGS)
 ELF      := mandelfract
 EXE      := mandelfract.exe

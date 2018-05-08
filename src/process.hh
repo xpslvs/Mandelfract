@@ -1,17 +1,16 @@
-
 /* process.hh*/
-#pragma once
+#ifndef PROCESS_HH
+#define PROCESS_HH
+
+#define VALUE_INVALID 0x0
 
 namespace process 
 {
-	extern volatile int threads;
-
-	void execute(void);
-	void interrupt(void);
-	void reload(void (*)(void));
-	void pause(void);
-	void toggle_threads(int);	
-	void toggle_refresh(int = 3);
-	float framerate(void);
+	void await(void);
+	void dispatch(void);
+	void setup_threads(void);
+	void mark(int, int, int);
+	void invalidate(void);
 }
 
+#endif /* PROCESS_HH */

@@ -1,6 +1,6 @@
-
 /* input.hh */
-#pragma once
+#ifndef INPUT_HH
+#define INPUT_HH
 
 /* The controls are as follows:
  * [+]           :    Zoom in
@@ -9,6 +9,7 @@
  * [RIGHTARROW/D]:    Move right
  * [DOWNARROW/S] :    Move down
  * [LEFTARROW/A] :    Move left
+ * [R]           :    Render again
  * [Z]           :    Toggle fractal type (next)
  * [X]           :    Toggle fractal type (previous)
  * [H]           :    Toggle help display
@@ -23,6 +24,8 @@
  */
 namespace input 
 {
+	void *freeze(void *);
 	void poll(void);
 }
 
+#endif /* INPUT_HH */

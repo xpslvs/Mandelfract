@@ -1,112 +1,66 @@
-
 /* process.cc */
+#include <cstring>
 #include <cstddef>
 #include <ctime>
 #include <cmath>
 #include <pthread.h>
+#include <vector>
 #include "process.hh"
+#include "input.hh"
 #include "state.hh"
 #include "graphics.hh"
 #include "fractal.hh"
 
-#define THREADS_MULTIPLIER            4
-#define MAXIMUM_CONSECUTIVE_REFRESHES 3
-
 namespace process 
 {
-	enum PROCSIG
-	{
-		STOP,
-		IDLE,
-		EXEC
-	};
-
 	struct ThreadData
 	{
 		pthread_t thread;
-		int       x[2];
-		int       y[2];
+		int x, y;
+		int width, height;
 	};
+	
+	static ThreadData   threads[MAX_THREADS];
+	static volatile int active = 0;
 
-	volatile int threads = 4;
-
-	static pthread_t    procthread = (pthread_t)NULL;
-	static volatile int signal     = PROCSIG::IDLE;
-	static volatile int refresh    = MAXIMUM_CONSECUTIVE_REFRESHES;
-	static volatile int rate       = 0;
-
-	static void assign_segments(ThreadData *);
-	static void dispatch_threads(ThreadData *, int);
-	static void *process(void *);
 	static void *process_segment(void *);
 	
-	void execute(void)
+	/* Await all the dispatched threads to finish
+	 */
+	void await(void)
 	{
-		signal = PROCSIG::EXEC;
-		pthread_create(&procthread, NULL, process, NULL);
+		pthread_t poll;
+		bool flag = true;
+		pthread_create(&poll, NULL, input::freeze, &flag);
+		for(int i = 0; i < active; ++i)
+		{
+			pthread_join(threads[i].thread, NULL);
+		}
+		flag = false;
+		pthread_join(poll, NULL);
 	}
 
-	void interrupt(void)
-	{
-		signal = PROCSIG::STOP;
-		pthread_join(procthread, NULL);
-	}
-
-	void reload(void (*function)(void))
-	{
-		interrupt();
-		if(function != NULL) 
-			function(); 
-		execute();
-	}
-
-	void pause(void)
-	{
-		signal = signal == PROCSIG::IDLE ? PROCSIG::EXEC : PROCSIG::IDLE;
-	}
-
-	void toggle_refresh(int c)
-	{
-		refresh += c;
-		if(refresh > MAXIMUM_CONSECUTIVE_REFRESHES || refresh < 0)
-			refresh = MAXIMUM_CONSECUTIVE_REFRESHES;
-	}
-
-	void toggle_threads(int signum)
-	{
-		if(signum > 0)
-			threads *= THREADS_MULTIPLIER;
-		else if(signum < 0)
-			threads /= THREADS_MULTIPLIER;
-		threads = threads ? threads : 1;
-		reload(NULL);
-	}
-
-	float framerate(void)
-	{
-		return (float)rate / CLOCKS_PER_SEC;
-	}
-	
 	/* Assign every thread a rectangular segment of the screen
 	 * of a size depending on how many threads are used
 	 */
-	static void assign_segments(ThreadData *data, int count)
+	void setup_threads(void)
 	{
-		int const segments  = std::sqrt(count);
-		int const segwidth  = graphics::width  / segments;
-		int const segheight = graphics::height / segments;
+		// Thread array needs to be zeroed in order to prevent segfaults
+		std::memset(threads, 0L, MAX_THREADS * sizeof(ThreadData));
 
-		int i = 0;
-		for(int x = 0; x < segments; ++x)
+		active = state.threads;
+		int segments = std::sqrt(active);
+		int segw = state.width  / segments;
+		int segh = state.height / segments;
+
+		for(int y = 0, i = 0; y < segments; ++y)
 		{
-			for(int y = 0; y < segments; ++y)
+			for(int x = 0; x < segments; ++x, ++i)
 			{
-				data[i].x[0] = x * segwidth;
-				data[i].x[1] = data[i].x[0] + segwidth;
-				data[i].y[0] = y * segheight;
-				data[i].y[1] = data[i].y[0] + segheight;
-
-				++i;
+				threads[i].x      = x * segw;
+				threads[i].width  = segw;
+				threads[i].y      = y * segh;
+				threads[i].height = segh;
 			}
 		}
 	}
@@ -114,95 +68,48 @@ namespace process
 	/* Dispatches all threads, allowing them to work on their assigned
 	 * segments
 	 */
-	static void dispatch_threads(ThreadData *data, int count)
+	void dispatch(void)
 	{
-		// Dispatch threads
-		for(int i = 0; i < count; ++i)
+		await();
+		for(int i = 0; i < active; ++i)
 		{
-			pthread_create(&data[i].thread, NULL, process_segment, &data[i]);
+			pthread_create(&threads[i].thread, NULL, process_segment, &threads[i]);
 		}
-		// Wait for return
-		for(int i = 0; i < count; ++i)
-		{
-			pthread_join(data[i].thread, NULL);
-		}
-	}
-	
-	/* This is the main loop, it dispatches all threads
-	 * and then makes the necessary calls to render
-	 */
-	static void *process(void *argp)
-	{
-		// Threads need to be saved as a local variable, otherwise
-		// segfaults may occurr when toggling thread amount
-		int const count = threads;  
-		ThreadData thread_array[count]; 
-		assign_segments(thread_array, count);
-
-		while(state::running && signal != PROCSIG::STOP) 
-		{
-			if(refresh == 0 || signal == PROCSIG::IDLE)
-				continue;
-
-			while(refresh--)
-			{
-				rate = std::clock(); 
-				dispatch_threads(thread_array, count);
-				rate = std::clock() - rate; 
-			}
-			
-			graphics::clear();
-			graphics::load_pixels();
-			graphics::post_process();
-			graphics::load_interface();
-			graphics::refresh();
-		}
-
-		pthread_exit(NULL);
 	}
 
 	/* Processes a single segment and writes to video buffer
 	 */
 	static void *process_segment(void *argp)
 	{
-		ThreadData const *data = (ThreadData *)argp;
-		
+		const ThreadData *thread   = (ThreadData *)argp;
+		const int         x_offset = thread->x - (state.width / 2);
+		const int         y_offset = (state.height / 2) - thread->y;
+		long double       x_coord[thread->width];
+		long double       y_coord[thread->height];
+
 		// Preload x coordinates
-		long double const base_x  = state::x;
-		int const         relat_x = data->x[0] - (graphics::width/ 2);
-		int const         size_x  = data->x[1] - data->x[0];
-		long double       x_coord[size_x];
-		for(int x = 0; x < size_x; ++x)
+		for(int x = 0; x < thread->width; ++x)
 		{
-			x_coord[x] = base_x + ((long double)(relat_x + x) / state::scale);
+			x_coord[x] = state.x + (long double)(x_offset + x) / state.scale;
 		}
-		
 		// Preload y coordinates
-		long double const base_y  = state::y;
-		int const         relat_y = (graphics::height / 2) - data->y[0];
-		int const         size_y  = data->y[1] - data->y[0];
-		long double       y_coord[size_y];
-		for(int y = 0; y < size_y; ++y)
+		for(int y = 0; y < thread->height; ++y)
 		{
-			y_coord[y] =  base_y + (long double)(relat_y - y) / state::scale;
+			y_coord[y] =  state.y + (long double)(y_offset - y) / state.scale;
 		}
 		
-		int i = 0;
-		for(int x = data->x[0]; x < data->x[1]; ++x)
+		for(int y = thread->y, j = 0; y < thread->y + thread->height; ++y, ++j)
 		{
-			int j = 0;
-			for(int y = data->y[0]; y < data->y[1]; ++y)
+			for(int x = thread->x, i = 0; x < thread->x + thread->width; ++x, ++i)
 			{
-				if(graphics::get(x, y) != -1)
-					continue;
-				int const c = fractal::render(x_coord[i], y_coord[j]);
-				graphics::set(x, y, c);
-				++j;
+				if(graphics::color(x, y) == VALUE_INVALID)
+				{
+					int color = fractal::render(x_coord[i], y_coord[j]);
+					graphics::set_manual(y * state.width + x, color);
+				}
 			}
-			++i;
 		}
-		
+
 		pthread_exit(NULL);
 	}
 }
-

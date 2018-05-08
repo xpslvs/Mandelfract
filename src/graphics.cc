@@ -1,9 +1,8 @@
-
 /* graphics.cc */
 #include <cassert>
+#include <cstdio>
 #include <cstddef>
 #include <cstring>
-#include <cstdio>
 #include <ctime>
 #include <SDL2/SDL.h>
 #include "graphics.hh"
@@ -13,24 +12,27 @@
 
 namespace graphics
 {
-	volatile int width  = 768;
-	volatile int height = 768;
-
 	static SDL_Window   *window   = NULL;
 	static SDL_Renderer *renderer = NULL;
 	static SDL_Texture  *texture  = NULL;
 	static int          *vbuffer  = NULL;
 
+	void set_invalid(void)
+	{
+		std::memset(vbuffer, VALUE_INVALID, state.width * state.height * sizeof(int));
+	}
+
 	void initialize(void)
 	{
 		assert(SDL_Init(SDL_INIT_EVERYTHING) != -1);
+
 		window = SDL_CreateWindow
 		(
-			STATE_PROG " v" STATE_VERSION,
+			PROGRAM " v" VERSION,
 			SDL_WINDOWPOS_CENTERED,
 			SDL_WINDOWPOS_CENTERED,
-			width,
-			height,
+			state.width,
+			state.height,
 			SDL_WINDOW_RESIZABLE
 		);
 		assert(window != NULL);
@@ -47,9 +49,7 @@ namespace graphics
 		if(vbuffer != NULL)
 			delete[] vbuffer;
 		
-		SDL_GetWindowSize(window, (int *)&width, (int *)&height); 
-		assert(width > 0);
-		assert(height > 0);
+		SDL_GetWindowSize(window, &state.width, &state.height); 
 
 		renderer = SDL_CreateRenderer
 		(
@@ -57,17 +57,19 @@ namespace graphics
 			-1,
 			SDL_RENDERER_ACCELERATED
 		);
+
 		assert(renderer != NULL);
 		texture = SDL_CreateTexture
 		(
 			renderer,
 			SDL_PIXELFORMAT_ARGB8888,
 			SDL_TEXTUREACCESS_STREAMING,
-			width, 	
-			height	
+			state.width, 	
+			state.height	
 		);
 		assert(texture != NULL);
-		vbuffer = new int[width * height];
+
+		vbuffer = new int[state.width * state.height];
 		assert(vbuffer != NULL);
 	}
 
@@ -83,28 +85,23 @@ namespace graphics
 
 	void toggle_fullscreen(void)
 	{
-		void (*fullscreen)(void) = +[](void) -> void
-		{
-			if(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN)
-				SDL_SetWindowFullscreen(window, 0);
-			else
-				SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
-			resize();
-		};
-		process::reload(fullscreen);
+		if(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN)
+			SDL_SetWindowFullscreen(window, 0);
+		else
+			SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
 	}
 
 	void screenshot(void)
 	{
-		char title[64];
 		SDL_Surface *shot;
-		int plength;
+		char title[64];
+		int  length;
 		
 		shot = SDL_CreateRGBSurface
 		(
 			0,
-			width,
-			height,
+			state.width,
+			state.height,
 			32,
 			0x00FF0000,
 			0x0000FF00,
@@ -120,10 +117,9 @@ namespace graphics
 			shot->pixels,
 			shot->pitch
 		);
-		std::sprintf(title, "screenshots/%d.bmp", std::time(NULL));
+		std::sprintf(title, "screenshots/%d.bmp%n", (int)std::time(NULL), &length);
 		SDL_SaveBMP(shot, title);
-		plength = std::strlen(title);
-		interface::push_format(-1, (height / 2) + 24, plength, "Saved as %s", title);
+		interface::push_format(-1, (state.height / 2) + 24, length, "Saved as %s", title);
 
 		SDL_FreeSurface(shot);
 	}
@@ -135,12 +131,12 @@ namespace graphics
 
 	void set(int x, int y, int color)
 	{
-		set_manual(y * width + x, color);
+		set_manual(y * state.width + x, color);
 	}
 	
-	int get(int x, int y)
+	int color(int x, int y)
 	{
-		return vbuffer[y * width + x];
+		return vbuffer[y * state.width + x];
 	}
 
 	void clear(void)
@@ -160,7 +156,7 @@ namespace graphics
 			texture,
 			NULL,
 			vbuffer,
-			width * sizeof(int)
+			state.width * sizeof(int)
 		);
 		SDL_RenderCopy
 		(
@@ -171,33 +167,41 @@ namespace graphics
 		);
 	}
 
+	/* Shifts the video buffer according to how the coordinates moved
+	 * since last render
+	 */
 	void shift(void)
 	{
-		static long double dx = 0;
-		static long double dy = 0;
-		dx = state::x - dx;
-		dy = state::y - dy;
-		int sx = dx * state::scale;
-		int sy = dy * state::scale;
-
-		printf("(dx, dy) = (%d, %d)\n", sx, sy);
-
-		for(int y = 0; y < height; ++y)
+		static long double px = 0;
+		static long double py = 0;
+		
+		const int dx = (state.x - px) * state.scale;
+		const int dy = (py - state.y) * state.scale;
+		
+		auto lambda = [=](int x, int y) -> void
 		{
-			for(int x = 0; x < width; ++x)
+			const int rx = x + dx;
+			const int ry = y + dy;
+			if(rx < 0 || rx >= state.width || ry < 0 || ry >= state.height)
+				set(x, y, VALUE_INVALID);
+			else
+				set(x, y, color(rx, ry));
+		};
+		
+		for(int y  = (dy < 0 ? state.height-1 : 0)
+		   ;    y != (dy < 0 ? -1             : state.height)
+		   ;    y += (dy < 0 ? -1             : 1))
+		{
+			for(int x  = (dx < 0 ? state.width-1 : 0)
+			   ;    x != (dx < 0 ? -1            : state.width)
+			   ;    x += (dx < 0 ? -1            : 1))
 			{
-				int ox = x + sx;
-				int oy = y - sy;
-				if((ox < 0 || ox >= width)
-				|| (oy < 0 || oy >= height))
-					set(x, y, -1);
-				else
-					set(x, y, get(ox, oy));
+				lambda(x, y);
 			}
 		}
 
-		dx = state::x;
-		dy = state::y;
+		px = state.x;
+		py = state.y;
 	}
 
 	void post_process(void)
@@ -210,4 +214,3 @@ namespace graphics
 		SDL_RenderPresent(renderer);
 	}
 }
-

@@ -1,12 +1,9 @@
-
 /* graphics.hh */
-#pragma once
+#ifndef GRAPHICS_HH
+#define GRAPHICS_HH
 
 namespace graphics 
-{	
-	extern volatile int width;
-	extern volatile int height;
-
+{
 	void initialize(void);
 	void quit(void);
 	void resize(void);
@@ -14,12 +11,14 @@ namespace graphics
 	void screenshot(void);
 	void set(int, int, int);
 	void set_manual(int, int);
-	int  get(int, int);
+	int  color(int, int);
 	void clear(void);
 	void load_pixels(void);
 	void load_interface(void);
 	void post_process(void);
+	void set_invalid(void);
 	void shift(void);
 	void refresh(void);
 }
 
+#endif /* GRAPHICS_HH */

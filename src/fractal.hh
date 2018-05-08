@@ -1,13 +1,17 @@
-
 /* fractal.hh */
-#pragma once
+#ifndef FRACTAL_HH
+#define FRACTAL_HH
+
+#define FRACTALS 1
+
+enum Fractal : int
+{
+	MANDELBROT = 0
+};
 
 namespace fractal 
 {
-	extern volatile int iterations;
-
 	int render(long double, long double);
-	void toggle_type(int);
-	void toggle_iterations(int);
 }
 
+#endif /* FRACTAL_HH */
